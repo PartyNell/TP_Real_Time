@@ -384,6 +384,47 @@ void Tasks::MoveTask(void *arg) {
 }
 
 /**
+ * @brief Get battery level and send it to the monitor.
+ */
+void Tasks::GetBatteryTask(void *arg) {
+    int rs;
+    int battery;
+    Message *msg;
+    
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+    rt_task_set_periodic(NULL, TM_NOW, 500000000);
+
+    while (1) {
+        rt_task_wait_period(NULL);
+        cout << "Periodic battery update";
+        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+        rs = robotStarted;
+        rt_mutex_release(&mutex_robotStarted);
+        if (rs == 1) {
+            //ask battery level to the robot
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            battery = robot.Write(new Message(MESSAGE_ROBOT_BATTERY_GET));
+            rt_mutex_release(&mutex_robot);
+            
+            
+            //send the message to the monitor
+            msg = new Message(MESSAGE_ROBOT_BATTERY_LEVEL(battery));
+            rt_mutex_acquire(&mutex_monitor, TM_INFINITE);
+            monitor.Write(msg); // The message is deleted with the Write
+            rt_mutex_release(&mutex_monitor);
+            
+        }
+        cout << endl << flush;
+    }
+}
+
+/**
  * Write a message in a given queue
  * @param queue Queue identifier
  * @param msg Message to be stored

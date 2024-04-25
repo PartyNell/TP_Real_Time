@@ -6,7 +6,7 @@
 
 # Macros
 TOP=`pwd`
-CND_PLATFORM=CLang-Linux
+CND_PLATFORM=GNU-Linux
 CND_CONF=Debug__RPI_
 CND_DISTDIR=dist
 CND_BUILDDIR=build
