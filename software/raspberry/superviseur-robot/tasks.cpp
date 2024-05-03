@@ -27,6 +27,7 @@
 #define PRIORITY_TSTARTROBOT 20
 #define PRIORITY_TCAMERA 21
 #define PRIORITY_TBATTERY 26
+#define PRIORITY_TCONNEXION 27
 
 /*
  * Some remarks:
@@ -74,6 +75,11 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_mutex_create(&mutex_robotConnected, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    
     cout << "Mutexes created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -128,7 +134,7 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_create(&th_robotBattery, "th_checkConnexion", 0, PRIORITY_TCONNEXION, 0)) {
+    if (err = rt_task_create(&th_checkConnexion, "th_checkConnexion", 0, PRIORITY_TCONNEXION, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -180,10 +186,11 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-        if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
+    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    
 
     cout << "Tasks launched" << endl << flush;
 }
@@ -325,6 +332,9 @@ void Tasks::OpenComRobot(void *arg) {
             msgSend = new Message(MESSAGE_ANSWER_NACK);
         } else {
             msgSend = new Message(MESSAGE_ANSWER_ACK);
+            rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+                robotConnected = 1;
+            rt_mutex_release(&mutex_robotConnected);
         }
         WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
     }
@@ -405,7 +415,7 @@ void Tasks::MoveTask(void *arg) {
  */
 void Tasks::GetBatteryTask(void *arg) {
     int rs;
-    int battery;
+    Message *battery;
     Message *msg;
     
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
@@ -419,22 +429,19 @@ void Tasks::GetBatteryTask(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        cout << "Periodic battery update";
+        cout << "Periodic battery update\n";
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
         if (rs == 1) {
             //ask battery level to the robot
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            battery = robot.Write(new Message(MESSAGE_ROBOT_BATTERY_GET));
+            battery = robot.Write(robot.GetBattery());
             rt_mutex_release(&mutex_robot);
             
             
             //send the message to the monitor
-            msg = new Message(MESSAGE_ROBOT_BATTERY_LEVEL(battery));
-            rt_mutex_acquire(&mutex_monitor, TM_INFINITE);
-            monitor.Write(msg); // The message is deleted with the Write
-            rt_mutex_release(&mutex_monitor);
+            WriteInQueue(&q_messageToMon, battery);
             
         }
         cout << endl << flush;
@@ -444,9 +451,11 @@ void Tasks::GetBatteryTask(void *arg) {
 /**
  * @brief Check the connection 
  */
+
 void Tasks::CheckConnexion(void *arg) {
     int rs;
-    int connexion;
+    Message *connexion;
+    int rc;
     Message *msg;
     
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
@@ -460,34 +469,38 @@ void Tasks::CheckConnexion(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        cout << "Periodic connexion check";
-        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        rs = robotStarted;
-        rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) {
+        cout << "Periodic connexion check\n";
+        
+        rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+            rc = robotConnected;
+        rt_mutex_release(&mutex_robotConnected);
+        
+        if(rc == 1){
             //check connexion between the robot and the monitor
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            battery = robot.Write(new Message(MESSAGE_ROBOT_PING));
+                connexion = robot.Write(robot.Ping());
             rt_mutex_release(&mutex_robot);
-            
-            if (msgSend->GetID() != MESSAGE_ANSWER_ACK) {
+
+            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
                 //send the message to the monitor
-                msg = new Message(MESSAGE_MONITOR_LOST);
-                rt_mutex_acquire(&mutex_monitor, TM_INFINITE);
-                monitor.Write(msg); // The message is deleted with the Write
-                rt_mutex_release(&mutex_monitor);
+                msg = new Message((MessageID)MESSAGE_MONITOR_LOST);
+                WriteInQueue(&q_messageToMon, msg);
 
                 //Close the connexion 
                 robot.Close();
+                
+                rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+                    robotConnected = 0;
+                rt_mutex_release(&mutex_robotConnected);
 
                 //Reopen the connexion 
                 rt_sem_v(&sem_openComRobot);
 
                 //start the robot
-                rt_sem_v(&sem_startRobot);
+                //rt_sem_v(&sem_startRobot);
             }
-            
         }
+        
         cout << endl << flush;
     }
 }

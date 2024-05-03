@@ -66,6 +66,7 @@ private:
     ComRobot robot;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
+    int robotConnected = 0;
     
     /**********************************************************************/
     /* Tasks                                                              */
@@ -86,6 +87,7 @@ private:
     RT_MUTEX mutex_robot;
     RT_MUTEX mutex_robotStarted;
     RT_MUTEX mutex_move;
+    RT_MUTEX mutex_robotConnected;
 
     /**********************************************************************/
     /* Semaphores                                                         */
