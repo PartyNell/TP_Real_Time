@@ -77,6 +77,7 @@ private:
     RT_TASK th_startRobot;
     RT_TASK th_move;
     RT_TASK th_robotBattery;
+    RT_TASK th_checkConnexion;   
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -137,6 +138,11 @@ private:
      * @brief Get battery level and send it to the monitor.
      */    
     void GetBatteryTask(void *arg);
+
+   /**
+     * @brief Check the connexion between the supervisor and the robot with a ping.
+     */
+    void CheckConnexion(void *arg);
     
     /**********************************************************************/
     /* Queue services                                                     */
