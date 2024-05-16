@@ -36,6 +36,11 @@
 
 using namespace std;
 
+//treat image task modes
+#define CLASSIC_MODE 0
+#define ARENA_MODE 1
+#define POSITION_MODE 2
+
 class Tasks {
 public:
     /**
@@ -69,6 +74,7 @@ private:
     int move = MESSAGE_ROBOT_STOP;
     int robotConnected = 0;
     int cameraStarted =0;
+    int imageMode = 0;
     
     /**********************************************************************/
     /* Tasks                                                              */
@@ -82,6 +88,7 @@ private:
     RT_TASK th_robotBattery;
     RT_TASK th_checkConnexion;   
     RT_TASK th_startCamera;
+    RT_TASK th_imageProcessing;
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -93,6 +100,7 @@ private:
     RT_MUTEX mutex_robotConnected;
     RT_MUTEX mutex_camera;
     RT_MUTEX mutex_cameraStarted;
+    RT_MUTEX mutex_imageMode
 
     /**********************************************************************/
     /* Semaphores                                                         */
@@ -103,12 +111,13 @@ private:
     RT_SEM sem_startRobot;
     RT_SEM sem_startCamera;
 
-
     /**********************************************************************/
     /* Message queues                                                     */
     /**********************************************************************/
     int MSG_QUEUE_SIZE;
     RT_QUEUE q_messageToMon;
+    RT_QUEUE q_imageArena;
+    RT_QUEUE q_imagePosition;
     
     /**********************************************************************/
     /* Tasks' functions                                                   */
@@ -154,9 +163,14 @@ private:
     void CheckConnexion(void *arg);
 
        /**
-     * @brief Check the connexion between the supervisor and the robot with a ping.
+     * @brief Start the camera
      */
     void StartCamera(void *arg);
+
+    /**
+     * @brief get the pictures of the camera and divide it according to the mode
+     */
+    void imageProcessingTask(void *arg);
     
     /**********************************************************************/
     /* Queue services                                                     */
