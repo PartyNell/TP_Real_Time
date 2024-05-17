@@ -88,6 +88,7 @@ private:
     RT_TASK th_robotBattery;
     RT_TASK th_checkConnexion;   
     RT_TASK th_startCamera;
+    RT_TASK th_stopCamera;
     RT_TASK th_imageProcessing;
     
     /**********************************************************************/
@@ -100,7 +101,7 @@ private:
     RT_MUTEX mutex_robotConnected;
     RT_MUTEX mutex_camera;
     RT_MUTEX mutex_cameraStarted;
-    RT_MUTEX mutex_imageMode
+    RT_MUTEX mutex_imageMode;
 
     /**********************************************************************/
     /* Semaphores                                                         */
@@ -110,14 +111,14 @@ private:
     RT_SEM sem_serverOk;
     RT_SEM sem_startRobot;
     RT_SEM sem_startCamera;
+    RT_SEM sem_stopCamera;
+    RT_SEM sem_imageProcessing;
 
     /**********************************************************************/
     /* Message queues                                                     */
     /**********************************************************************/
     int MSG_QUEUE_SIZE;
     RT_QUEUE q_messageToMon;
-    RT_QUEUE q_imageArena;
-    RT_QUEUE q_imagePosition;
     
     /**********************************************************************/
     /* Tasks' functions                                                   */
@@ -166,6 +167,11 @@ private:
      * @brief Start the camera
      */
     void StartCamera(void *arg);
+    
+    /**
+     * @brief Stop the camera
+     */
+    void StopCamera(void *arg);
 
     /**
      * @brief get the pictures of the camera and divide it according to the mode
@@ -188,6 +194,13 @@ private:
      * @return Message read
      */
     Message *ReadInQueue(RT_QUEUE *queue);
+    
+     /**
+     * grap the next image of the camera
+     * @param void
+     * @return Image capture
+     */
+    Img* GetImage();
 
 };
 

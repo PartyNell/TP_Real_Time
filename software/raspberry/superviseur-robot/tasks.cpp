@@ -118,11 +118,11 @@ void Tasks::Init() {
         cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_sem_create(&sem_arenaPictureSend, NULL, 0, S_FIFO)) {
+    if (err = rt_sem_create(&sem_stopCamera, NULL, 0, S_FIFO)) {
         cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_sem_create(&sem_positionPictureSend, NULL, 0, S_FIFO)) {
+    if (err = rt_sem_create(&sem_imageProcessing, NULL, 0, S_FIFO)) {
         cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -168,6 +168,10 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
      }
+    if (err = rt_task_create(&th_stopCamera, "th_stopCamera", 0, PRIORITY_TCAMERA, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+     }
      if (err = rt_task_create(&th_imageProcessing, "th_imageProcessing", 0, PRIORITY_TIMAGEPROCESSING, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -178,15 +182,6 @@ void Tasks::Init() {
     /* Message queues creation                                                            */
     /**************************************************************************************/
     if ((err = rt_queue_create(&q_messageToMon, "q_messageToMon", sizeof (Message*)*50, Q_UNLIMITED, Q_FIFO)) < 0) {
-        cerr << "Error msg queue create: " << strerror(-err) << endl << flush;
-        exit(EXIT_FAILURE);
-    }
-    //change the size of the queue
-    if ((err = rt_queue_create(&q_imageArena, "q_imageArena", sizeof (Message*)*50, Q_UNLIMITED, Q_FIFO)) < 0) {
-        cerr << "Error msg queue create: " << strerror(-err) << endl << flush;
-        exit(EXIT_FAILURE);
-    }
-    if ((err = rt_queue_create(&q_imagePosition, "q_imagePosition", sizeof (Message*)*50, Q_UNLIMITED, Q_FIFO)) < 0) {
         cerr << "Error msg queue create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -237,6 +232,10 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_start(&th_stopCamera, (void(*)(void*)) & Tasks::StopCamera, this)) {
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     if (err = rt_task_start(&th_imageProcessing, (void(*)(void*)) & Tasks::imageProcessingTask, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -252,6 +251,7 @@ void Tasks::Run() {
 void Tasks::Stop() {
     monitor.Close();
     robot.Close();
+    camera.Close();
 }
 
 /**
@@ -352,6 +352,8 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_release(&mutex_move);
         } else if (msgRcv->CompareID(MESSAGE_CAM_OPEN)){
             rt_sem_v(&sem_startCamera);
+        } else if (msgRcv->CompareID(MESSAGE_CAM_CLOSE)){
+            rt_sem_v(&sem_stopCamera);
         } else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)) {
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
                 imageMode = ARENA_MODE;
@@ -585,7 +587,7 @@ void Tasks::StartCamera(void *arg) {
     /* The task openComRobot starts here                                                  */
     /**************************************************************************************/
     while (1) {
-        rt_sem_p(&sem_openCamera, TM_INFINITE);
+        rt_sem_p(&sem_startCamera, TM_INFINITE);
         cout << "Open camera (";
         rt_mutex_acquire(&mutex_camera, TM_INFINITE);
         status = camera.Open();
@@ -603,55 +605,83 @@ void Tasks::StartCamera(void *arg) {
             rt_mutex_release(&mutex_cameraStarted);
         }
         WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
+        
+        rt_sem_v(&sem_imageProcessing);
     }
 }
 
 /**
-     * @brief get the pictures of the camera and divide it according to the mode
-     */
-    void imageProcessingTask(void *arg){
-        Img * img;
-        int mode;
+ * @brief Thread opening the camera.
+ */
+void Tasks::StopCamera(void *arg) {
 
-        cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
-        // Synchronization barrier (waiting that all tasks are starting)
-        rt_sem_p(&sem_barrier, TM_INFINITE);
-
-        rt_task_set_periodic(NULL, TM_NOW, 100000000); 
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task openComRobot starts here                                                  */
+    /**************************************************************************************/
+    while (1) {
+        rt_sem_p(&sem_stopCamera, TM_INFINITE);
+        rt_sem_p(&sem_imageProcessing, TM_INFINITE);
+        cout << "Close camera \n";
+        rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+            camera.Close();
+        rt_mutex_release(&mutex_camera);
         
-        /**************************************************************************************/
-        /* The task openComRobot starts here                                                  */
-        /**************************************************************************************/
-        while (1) {
-            rt_task_wait_period(NULL);
-            cout << "Periodic camera image sample\n";
-
-            //grap a picture
-            rt_mutex_acquire(&mutex_camera, TM_INFINITE);
-                img = = new Img(camera->Grab());
-            rt_mutex_release(&mutex_camera);
-
-            //ditribute it according to the image mode
-            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
-                mode = imageMode;
-            rt_mutex_release(&mutex_imageMode);
-
-            switch(mode){
-                case CLASSIC_MODE : //send the picture to the monitor
-                    MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
-                    WriteInQueue(&q_messageToMon, msgImg);
-                    break;
-                case ARENA_MODE : //send the picture to ArenaSearch
-                    WriteInQueue(&q_imageArena, img);
-                    break;
-                case POSITION_MODE : //send the picture to positionSearch
-                    WriteInQueue(&q_imagePosition, img);
-                    break;
-                default : 
-                    cout << mode << " : this mode does not exist" << endl;
-            }
-        }
     }
+}
+
+/**
+* @brief get the pictures of the camera and divide it according to the mode
+*/
+void Tasks::imageProcessingTask(void *arg){
+    Img * img;
+    int mode;
+
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+
+    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
+
+    /**************************************************************************************/
+    /* The task openComRobot starts here                                                  */
+    /**************************************************************************************/
+    while (1) {
+        rt_task_wait_period(NULL);
+
+        //take the token attributed to image processing
+        rt_sem_p(&sem_imageProcessing, TM_INFINITE);
+        cout << "Periodic camera image sample\n";
+        
+        //grap a picture
+        img = GetImage();
+        
+        //rt_sem_v(&sem_imageProcessing);
+
+        //ditribute it according to the image mode
+        rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
+            mode = imageMode;
+        rt_mutex_release(&mutex_imageMode);
+
+        switch(mode){
+            case CLASSIC_MODE : {//send the picture to the monitor
+                MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
+                WriteInQueue(&q_messageToMon, msgImg);
+            } break;
+            case ARENA_MODE : {//send the picture to ArenaSearch
+                
+            } break;
+            case POSITION_MODE : {//send the picture to positionSearch
+              
+            } break;
+        }
+
+        rt_sem_v(&sem_imageProcessing);
+    }
+}
 
 
 /**
@@ -684,5 +714,22 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
     } /**/
 
     return msg;
+}
+
+
+/**
+ * grap the next image of the camera
+ * @param void
+ * @return Image capture
+ */
+Img* Tasks::GetImage(){
+    Img *img;
+    
+    //grap a picture
+    rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+        img = new Img(camera.Grab());
+    rt_mutex_release(&mutex_camera);
+    
+    return img;
 }
 
