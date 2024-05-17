@@ -71,10 +71,12 @@ private:
     ComRobot robot;
     Camera camera;
     int robotStarted = 0;
+    Message * arenaV ;
     int move = MESSAGE_ROBOT_STOP;
     int robotConnected = 0;
     int cameraStarted =0;
     int imageMode = 0;
+    Arena arena;
     
     /**********************************************************************/
     /* Tasks                                                              */
@@ -90,6 +92,7 @@ private:
     RT_TASK th_startCamera;
     RT_TASK th_stopCamera;
     RT_TASK th_imageProcessing;
+    RT_TASK th_arenaValidation;
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -102,6 +105,8 @@ private:
     RT_MUTEX mutex_camera;
     RT_MUTEX mutex_cameraStarted;
     RT_MUTEX mutex_imageMode;
+    RT_MUTEX mutex_arena;
+    RT_MUTEX mutex_arenaV;
 
     /**********************************************************************/
     /* Semaphores                                                         */
@@ -113,7 +118,9 @@ private:
     RT_SEM sem_startCamera;
     RT_SEM sem_stopCamera;
     RT_SEM sem_imageProcessing;
-
+    RT_SEM sem_arenaValidation;
+    RT_SEM sem_arenaProcessing;
+    
     /**********************************************************************/
     /* Message queues                                                     */
     /**********************************************************************/
@@ -177,6 +184,11 @@ private:
      * @brief get the pictures of the camera and divide it according to the mode
      */
     void imageProcessingTask(void *arg);
+    
+    /**
+     *  @brief Arena Validation.
+     */
+    void ArenaValidation(void *arg) ;
     
     /**********************************************************************/
     /* Queue services                                                     */

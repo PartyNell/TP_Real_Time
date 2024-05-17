@@ -29,6 +29,7 @@
 #define PRIORITY_TBATTERY 26
 #define PRIORITY_TCONNEXION 27
 #define PRIORITY_TIMAGEPROCESSING 22
+#define PRIORITY_TARENA 21
 
 /*
  * Some remarks:
@@ -92,6 +93,14 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_mutex_create(&mutex_arena, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+     if (err = rt_mutex_create(&mutex_arenaV, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     
     cout << "Mutexes created successfully" << endl << flush;
 
@@ -123,6 +132,14 @@ void Tasks::Init() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_sem_create(&sem_imageProcessing, NULL, 0, S_FIFO)) {
+        cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_sem_create(&sem_arenaValidation, NULL, 0, S_FIFO)) {
+        cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_sem_create(&sem_arenaProcessing, NULL, 0, S_FIFO)) {
         cerr << "Error semaphore create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -176,7 +193,13 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
      }
+     if (err = rt_task_create(&th_arenaValidation, "th_arenaValidation", 0, PRIORITY_TARENA, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+     }
     cout << "Tasks created successfully" << endl << flush;
+    
+    
 
     /**************************************************************************************/
     /* Message queues creation                                                            */
@@ -237,6 +260,10 @@ void Tasks::Run() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_task_start(&th_imageProcessing, (void(*)(void*)) & Tasks::imageProcessingTask, this)) {
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+      if (err = rt_task_start(&th_arenaValidation, (void(*)(void*)) & Tasks::ArenaValidation, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -355,18 +382,22 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         } else if (msgRcv->CompareID(MESSAGE_CAM_CLOSE)){
             rt_sem_v(&sem_stopCamera);
         } else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)) {
-            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
-                imageMode = ARENA_MODE;
-            rt_mutex_release(&mutex_imageMode);
+            rt_sem_v(&sem_arenaProcessing);
         } else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_START)) {
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
                 imageMode = POSITION_MODE;
             rt_mutex_release(&mutex_imageMode);
         }  else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_STOP)) {
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
-                imageMode = CLASSIC_MODE;
+                imageMode = ARENA_MODE;
             rt_mutex_release(&mutex_imageMode);
-        }
+        }  else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)||msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)) {
+            rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
+            arenaV = msgRcv;
+            rt_mutex_release(&mutex_arenaV);
+            rt_sem_v(&sem_arenaValidation);
+
+        } 
         delete(msgRcv); // mus be deleted manually, no consumer
     }
 }
@@ -639,6 +670,9 @@ void Tasks::StopCamera(void *arg) {
 void Tasks::imageProcessingTask(void *arg){
     Img * img;
     int mode;
+    list<Position> position;
+    Arena a;
+    
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -658,28 +692,97 @@ void Tasks::imageProcessingTask(void *arg){
         
         //grap a picture
         img = GetImage();
-        
-        //rt_sem_v(&sem_imageProcessing);
 
         //ditribute it according to the image mode
         rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
             mode = imageMode;
         rt_mutex_release(&mutex_imageMode);
+        
+        cout << "mode : " << mode << endl;
 
         switch(mode){
             case CLASSIC_MODE : {//send the picture to the monitor
-                MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
-                WriteInQueue(&q_messageToMon, msgImg);
+                //there is not specificity to do
             } break;
             case ARENA_MODE : {//send the picture to ArenaSearch
+                rt_mutex_acquire(&mutex_arena, TM_INFINITE);
+                a = arena;
+                rt_mutex_release(&mutex_arena);
                 
+                img->DrawArena(a);
             } break;
             case POSITION_MODE : {//send the picture to positionSearch
-              
+                
             } break;
+            default : 
+                cout << "This mode does not exist" << endl;
         }
-
+        
+        MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
+        WriteInQueue(&q_messageToMon, msgImg);
+                
         rt_sem_v(&sem_imageProcessing);
+    }
+}
+
+/**
+ * @brief Arena Validation.
+ */
+void Tasks::ArenaValidation(void *arg) {
+    Img * img;
+    Message* msgSend;
+    Arena A;
+    Message* msgArenaV;
+
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task openComRobot starts here                                                  */
+    /**************************************************************************************/
+    while (1) {
+        rt_sem_p(&sem_arenaProcessing, TM_INFINITE);
+        rt_sem_p(&sem_imageProcessing, TM_INFINITE);
+
+        img = GetImage();
+        A = img->SearchArena();
+        if(A.IsEmpty()){
+//            Message *msgSend = new Message(MESSAGE_ANSWER_NACK);
+//            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
+//                imageMode = CLASSIC_MODE;
+//            rt_mutex_release(&mutex_imageMode);
+//            
+//        } else {
+            img->DrawArena(A);
+            MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
+            WriteInQueue(&q_messageToMon, msgImg);
+            
+            rt_sem_p(&sem_arenaValidation, TM_INFINITE);
+            
+            rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
+            msgArenaV = arenaV;
+            rt_mutex_release(&mutex_arenaV);
+            
+            if (msgArenaV->CompareID(MESSAGE_CAM_ARENA_CONFIRM)){
+                
+            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
+                imageMode = ARENA_MODE;
+            rt_mutex_release(&mutex_imageMode);
+            
+            rt_mutex_acquire(&mutex_arena, TM_INFINITE);
+            arena = A;
+            rt_mutex_release(&mutex_arena);
+            
+            } else {
+            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
+                imageMode = POSITION_MODE;
+            rt_mutex_release(&mutex_imageMode);
+            
+            }
+            
+        }
+    rt_sem_v(&sem_imageProcessing);    
     }
 }
 
