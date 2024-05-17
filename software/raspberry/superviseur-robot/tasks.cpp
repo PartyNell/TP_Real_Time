@@ -580,8 +580,6 @@ void Tasks::StartCamera(void *arg) {
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
-
-    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
     
     /**************************************************************************************/
     /* The task openComRobot starts here                                                  */
@@ -618,6 +616,8 @@ void Tasks::StartCamera(void *arg) {
         cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
         // Synchronization barrier (waiting that all tasks are starting)
         rt_sem_p(&sem_barrier, TM_INFINITE);
+
+        rt_task_set_periodic(NULL, TM_NOW, 100000000); 
         
         /**************************************************************************************/
         /* The task openComRobot starts here                                                  */
@@ -639,7 +639,7 @@ void Tasks::StartCamera(void *arg) {
             switch(mode){
                 case CLASSIC_MODE : //send the picture to the monitor
                     MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
-                    WriteInQueue(&q_messageToMon, msgSend);
+                    WriteInQueue(&q_messageToMon, msgImg);
                     break;
                 case ARENA_MODE : //send the picture to ArenaSearch
                     WriteInQueue(&q_imageArena, img);
