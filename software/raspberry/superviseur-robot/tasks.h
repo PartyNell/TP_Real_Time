@@ -71,7 +71,7 @@ private:
     ComRobot robot;
     Camera camera;
     int robotStarted = 0;
-    Message * arenaV ;
+    bool arenaV ;
     int move = MESSAGE_ROBOT_STOP;
     int robotConnected = 0;
     int cameraStarted =0;

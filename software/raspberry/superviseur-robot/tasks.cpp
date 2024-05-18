@@ -247,10 +247,10 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
-        cerr << "Error task start: " << strerror(-err) << endl << flush;
-        exit(EXIT_FAILURE);
-    }
+//    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
+//        cerr << "Error task start: " << strerror(-err) << endl << flush;
+//        exit(EXIT_FAILURE);
+//    }
     if (err = rt_task_start(&th_startCamera, (void(*)(void*)) & Tasks::StartCamera, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -392,9 +392,18 @@ void Tasks::ReceiveFromMonTask(void *arg) {
                 imageMode = ARENA_MODE;
             rt_mutex_release(&mutex_imageMode);
         }  else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)||msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)) {
-            rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
-            arenaV = msgRcv;
-            rt_mutex_release(&mutex_arenaV);
+            
+            //The comparation with the compareID in the arenaValidation didn't work when we transfered the message 
+            if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)){
+                rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
+                arenaV = true;
+                rt_mutex_release(&mutex_arenaV);
+            } else {
+                rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
+                arenaV = false;
+                rt_mutex_release(&mutex_arenaV);
+            }            
+            cout << "message de réponse : " << msgRcv->ToString() << endl;
             rt_sem_v(&sem_arenaValidation);
 
         } 
@@ -550,58 +559,58 @@ void Tasks::GetBatteryTask(void *arg) {
  * @brief Check the connection 
  */
 
-void Tasks::CheckConnexion(void *arg) {
-    int rs;
-    Message *connexion;
-    int rc;
-    Message *msg;
-    
-    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
-    // Synchronization barrier (waiting that all tasks are starting)
-    rt_sem_p(&sem_barrier, TM_INFINITE);
-    
-    /**************************************************************************************/
-    /* The task starts here                                                               */
-    /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
-
-    while (1) {
-        rt_task_wait_period(NULL);
-        cout << "Periodic connexion check\n";
-        
-        rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
-            rc = robotConnected;
-        rt_mutex_release(&mutex_robotConnected);
-        
-        if(rc == 1){
-            //check connexion between the robot and the monitor
-            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-                connexion = robot.Write(robot.Ping());
-            rt_mutex_release(&mutex_robot);
-
-            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
-                //send the message to the monitor
-                msg = new Message((MessageID)MESSAGE_MONITOR_LOST);
-                WriteInQueue(&q_messageToMon, msg);
-
-                //Close the connexion 
-                robot.Close();
-                
-                rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
-                    robotConnected = 0;
-                rt_mutex_release(&mutex_robotConnected);
-
-                //Reopen the connexion 
-                rt_sem_v(&sem_openComRobot);
-
-                //start the robot
-                //rt_sem_v(&sem_startRobot);
-            }
-        }
-        
-        cout << endl << flush;
-    }
-}
+//void Tasks::CheckConnexion(void *arg) {
+//    int rs;
+//    Message *connexion;
+//    int rc;
+//    Message *msg;
+//    
+//    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+//    // Synchronization barrier (waiting that all tasks are starting)
+//    rt_sem_p(&sem_barrier, TM_INFINITE);
+//    
+//    /**************************************************************************************/
+//    /* The task starts here                                                               */
+//    /**************************************************************************************/
+//    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
+//
+//    while (1) {
+//        rt_task_wait_period(NULL);
+//        cout << "Periodic connexion check\n";
+//        
+//        rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+//            rc = robotConnected;
+//        rt_mutex_release(&mutex_robotConnected);
+//        
+//        if(rc == 1){
+//            //check connexion between the robot and the monitor
+//            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+//                connexion = robot.Write(robot.Ping());
+//            rt_mutex_release(&mutex_robot);
+//
+//            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
+//                //send the message to the monitor
+//                msg = new Message((MessageID)MESSAGE_MONITOR_LOST);
+//                WriteInQueue(&q_messageToMon, msg);
+//
+//                //Close the connexion 
+//                robot.Close();
+//                
+//                rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+//                    robotConnected = 0;
+//                rt_mutex_release(&mutex_robotConnected);
+//
+//                //Reopen the connexion 
+//                rt_sem_v(&sem_openComRobot);
+//
+//                //start the robot
+//                //rt_sem_v(&sem_startRobot);
+//            }
+//        }
+//        
+//        cout << endl << flush;
+//    }
+//}
 
 /**
  * @brief Thread opening the camera.
@@ -669,6 +678,7 @@ void Tasks::StopCamera(void *arg) {
 */
 void Tasks::imageProcessingTask(void *arg){
     Img * img;
+    Message* msgPos;
     int mode;
     list<Position> position;
     Arena a;
@@ -700,23 +710,41 @@ void Tasks::imageProcessingTask(void *arg){
         
         cout << "mode : " << mode << endl;
 
-        switch(mode){
-            case CLASSIC_MODE : {//send the picture to the monitor
+        if(mode == CLASSIC_MODE){//send the picture to the monitor
                 //there is not specificity to do
-            } break;
-            case ARENA_MODE : {//send the picture to ArenaSearch
-                rt_mutex_acquire(&mutex_arena, TM_INFINITE);
+        } else if (mode == ARENA_MODE){
+            rt_mutex_acquire(&mutex_arena, TM_INFINITE);
                 a = arena;
-                rt_mutex_release(&mutex_arena);
+            rt_mutex_release(&mutex_arena);
                 
-                img->DrawArena(a);
-            } break;
-            case POSITION_MODE : {//send the picture to positionSearch
-                
-            } break;
-            default : 
-                cout << "This mode does not exist" << endl;
-        }
+            img->DrawArena(a);
+        } else if (mode == POSITION_MODE) {
+            //get the arena
+            rt_mutex_acquire(&mutex_arena, TM_INFINITE);
+                a = arena;
+            rt_mutex_release(&mutex_arena);
+            
+            //Draw the arena
+            img->DrawArena(a);
+            
+            //find the position
+            position = img->SearchRobot(a);
+            
+            if(!position.empty()){
+                //draw the position on the image
+                img->DrawAllRobots(position);
+//                
+//                Position p = position.front;
+//                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+            } else {
+//                Position p = Position();
+//                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+            }
+//            WriteInQueue(&q_messageToMon, msgPos);
+            
+        } else 
+            cout << "This mode does not exist" << endl;
+        
         
         MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
         WriteInQueue(&q_messageToMon, msgImg);
@@ -732,7 +760,7 @@ void Tasks::ArenaValidation(void *arg) {
     Img * img;
     Message* msgSend;
     Arena A;
-    Message* msgArenaV;
+    bool AV;
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -743,17 +771,25 @@ void Tasks::ArenaValidation(void *arg) {
     /**************************************************************************************/
     while (1) {
         rt_sem_p(&sem_arenaProcessing, TM_INFINITE);
+        
         rt_sem_p(&sem_imageProcessing, TM_INFINITE);
 
         img = GetImage();
+        
         A = img->SearchArena();
+        
         if(A.IsEmpty()){
-//            Message *msgSend = new Message(MESSAGE_ANSWER_NACK);
-//            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
-//                imageMode = CLASSIC_MODE;
-//            rt_mutex_release(&mutex_imageMode);
-//            
-//        } else {
+            cout << "IsEmpty" << endl;
+            msgSend = new Message(MESSAGE_ANSWER_NACK);
+            WriteInQueue(&q_messageToMon, msgSend);
+            
+            rt_sem_p(&sem_arenaValidation, TM_INFINITE);
+            
+            rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
+                imageMode = CLASSIC_MODE;
+            rt_mutex_release(&mutex_imageMode);
+            
+        } else {
             img->DrawArena(A);
             MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
             WriteInQueue(&q_messageToMon, msgImg);
@@ -761,28 +797,31 @@ void Tasks::ArenaValidation(void *arg) {
             rt_sem_p(&sem_arenaValidation, TM_INFINITE);
             
             rt_mutex_acquire(&mutex_arenaV, TM_INFINITE);
-            msgArenaV = arenaV;
+            AV = arenaV;
             rt_mutex_release(&mutex_arenaV);
             
-            if (msgArenaV->CompareID(MESSAGE_CAM_ARENA_CONFIRM)){
-                
+            if (AV){
+                cout << "Arena confirm" << endl;
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
                 imageMode = ARENA_MODE;
             rt_mutex_release(&mutex_imageMode);
             
             rt_mutex_acquire(&mutex_arena, TM_INFINITE);
-            arena = A;
+                arena = A;
             rt_mutex_release(&mutex_arena);
             
             } else {
+                cout << "Arena infirm" << endl;
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
-                imageMode = POSITION_MODE;
+                imageMode = CLASSIC_MODE;
             rt_mutex_release(&mutex_imageMode);
             
             }
             
         }
+        
     rt_sem_v(&sem_imageProcessing);    
+    
     }
 }
 
