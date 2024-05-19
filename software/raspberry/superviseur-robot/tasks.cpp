@@ -20,14 +20,14 @@
 
 // Déclaration des priorités des taches
 #define PRIORITY_TSERVER 30
-#define PRIORITY_TOPENCOMROBOT 20
+#define PRIORITY_TOPENCOMROBOT 25
 #define PRIORITY_TMOVE 20
 #define PRIORITY_TSENDTOMON 22
 #define PRIORITY_TRECEIVEFROMMON 25
 #define PRIORITY_TSTARTROBOT 20
-#define PRIORITY_TCAMERA 21
-#define PRIORITY_TBATTERY 26
-#define PRIORITY_TCONNEXION 27
+#define PRIORITY_TCAMERA 24
+#define PRIORITY_TBATTERY 20
+#define PRIORITY_TCONNEXION 24
 #define PRIORITY_TIMAGEPROCESSING 22
 #define PRIORITY_TARENA 21
 
@@ -247,10 +247,10 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-//    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
-//        cerr << "Error task start: " << strerror(-err) << endl << flush;
-//        exit(EXIT_FAILURE);
-//    }
+    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     if (err = rt_task_start(&th_startCamera, (void(*)(void*)) & Tasks::StartCamera, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -476,6 +476,9 @@ void Tasks::StartRobotTask(void *arg) {
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
             robotStarted = 1;
             rt_mutex_release(&mutex_robotStarted);
+        } else {
+            // while not started, force start
+            rt_sem_v(&sem_startRobot);
         }
     }
 }
@@ -559,58 +562,74 @@ void Tasks::GetBatteryTask(void *arg) {
  * @brief Check the connection 
  */
 
-//void Tasks::CheckConnexion(void *arg) {
-//    int rs;
-//    Message *connexion;
-//    int rc;
-//    Message *msg;
-//    
-//    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
-//    // Synchronization barrier (waiting that all tasks are starting)
-//    rt_sem_p(&sem_barrier, TM_INFINITE);
-//    
-//    /**************************************************************************************/
-//    /* The task starts here                                                               */
-//    /**************************************************************************************/
-//    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
-//
-//    while (1) {
-//        rt_task_wait_period(NULL);
-//        cout << "Periodic connexion check\n";
-//        
-//        rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
-//            rc = robotConnected;
-//        rt_mutex_release(&mutex_robotConnected);
-//        
-//        if(rc == 1){
-//            //check connexion between the robot and the monitor
-//            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-//                connexion = robot.Write(robot.Ping());
-//            rt_mutex_release(&mutex_robot);
-//
-//            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
-//                //send the message to the monitor
-//                msg = new Message(MESSAGE_MONITOR_LOST);
-//                WriteInQueue(&q_messageToMon, msg);
-//
-//                //Close the connexion 
-//                robot.Close();
-//                
-//                rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
-//                    robotConnected = 0;
-//                rt_mutex_release(&mutex_robotConnected);
-//
-//                //Reopen the connexion 
-//                rt_sem_v(&sem_openComRobot);
-//
-//                //start the robot
-//                //rt_sem_v(&sem_startRobot);
-//            }
-//        }
-//        
-//        cout << endl << flush;
-//    }
-//}
+void Tasks::CheckConnexion(void *arg) {
+    int rs;
+    Message *connexion;
+    int rc;
+    int count = 0;
+    Message *msg;
+    
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
+
+    while (1) {
+        rt_task_wait_period(NULL);
+        cout << "Periodic connexion check\n";
+        
+        rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+            rc = robotConnected;
+        rt_mutex_release(&mutex_robotConnected);
+      
+        if(rc == 1){
+            
+            //check connexion between the robot and the monitor
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+                connexion = robot.Write(robot.Ping());
+            rt_mutex_release(&mutex_robot);
+
+            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
+                cout<<"error N "<< to_string(count)<<endl << flush;
+                count++ ;
+                if (count > 3) {
+                    //send the message to the monitor
+                    msg = new Message(MESSAGE_MONITOR_LOST);
+                    WriteInQueue(&q_messageToMon, msg);
+
+                    //Close the connexion 
+                    robot.Close();
+
+                    rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
+                        robotConnected = 0;
+                    rt_mutex_release(&mutex_robotConnected);
+                    
+                    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+                        robot.Write(robot.Reset());
+                    rt_mutex_release(&mutex_robot);
+
+                    //start the robot
+                    rt_sem_v(&sem_startRobot);
+                    
+                    
+                    //Reopen the connexion 
+                    rt_sem_v(&sem_openComRobot);
+
+
+                }
+            } else {
+                count =0;
+            }
+            
+        }
+        
+        cout << endl << flush;
+    }
+}
 
 /**
  * @brief Thread opening the camera.
@@ -733,9 +752,10 @@ void Tasks::imageProcessingTask(void *arg){
             if(!position.empty()){
                 //draw the position on the image
                 img->DrawAllRobots(position);
+                cout << "Get Position" << endl;
                
-                Position p = position.front;
-                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+                Position p = position.front();
+               msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             } else {
                 cv::Point out;
                 out.x = -1.0;
