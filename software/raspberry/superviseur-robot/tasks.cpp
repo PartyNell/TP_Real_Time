@@ -590,7 +590,7 @@ void Tasks::GetBatteryTask(void *arg) {
 //
 //            if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
 //                //send the message to the monitor
-//                msg = new Message((MessageID)MESSAGE_MONITOR_LOST);
+//                msg = new Message(MESSAGE_MONITOR_LOST);
 //                WriteInQueue(&q_messageToMon, msg);
 //
 //                //Close the connexion 
@@ -733,14 +733,18 @@ void Tasks::imageProcessingTask(void *arg){
             if(!position.empty()){
                 //draw the position on the image
                 img->DrawAllRobots(position);
-//                
-//                Position p = position.front;
-//                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+               
+                Position p = position.front;
+                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             } else {
-//                Position p = Position();
-//                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+                cv::Point out;
+                out.x = -1.0;
+                out.y = -1.0;
+                Position p;
+                p.center = out;
+                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             }
-//            WriteInQueue(&q_messageToMon, msgPos);
+            WriteInQueue(&q_messageToMon, msgPos);
             
         } else 
             cout << "This mode does not exist" << endl;
