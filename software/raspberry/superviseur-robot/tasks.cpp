@@ -247,15 +247,15 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexion, this)) {
+    if (err = rt_task_start(&th_checkConnexion, (void(*)(void*)) & Tasks::CheckConnexionTask, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_startCamera, (void(*)(void*)) & Tasks::StartCamera, this)) {
+    if (err = rt_task_start(&th_startCamera, (void(*)(void*)) & Tasks::StartCameraTask, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_stopCamera, (void(*)(void*)) & Tasks::StopCamera, this)) {
+    if (err = rt_task_start(&th_stopCamera, (void(*)(void*)) & Tasks::StopCameraTask, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -263,7 +263,7 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-      if (err = rt_task_start(&th_arenaValidation, (void(*)(void*)) & Tasks::ArenaValidation, this)) {
+      if (err = rt_task_start(&th_arenaValidation, (void(*)(void*)) & Tasks::ArenaValidationTask, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -539,7 +539,9 @@ void Tasks::GetBatteryTask(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        cout << "Periodic battery update\n";
+        cout << "Periodic battery update" << endl << flush;
+
+        //obtains the battery level only if the robot is started
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
         rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
@@ -554,7 +556,6 @@ void Tasks::GetBatteryTask(void *arg) {
             WriteInQueue(&q_messageToMon, battery);
             
         }
-        cout << endl << flush;
     }
 }
 
@@ -562,12 +563,12 @@ void Tasks::GetBatteryTask(void *arg) {
  * @brief Check the connection 
  */
 
-void Tasks::CheckConnexion(void *arg) {
-    int rs;
-    Message *connexion;
-    int rc;
+void Tasks::CheckConnexionTask(void *arg) {
+    int rs; //robotStarted
+    int rc; //robot connected
     int count = 0;
     Message *msg;
+    Message *connexion;
     
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -580,22 +581,26 @@ void Tasks::CheckConnexion(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        cout << "Periodic connexion check\n";
+        cout << "Periodic connexion check" << endl << flush;
         
         rt_mutex_acquire(&mutex_robotConnected, TM_INFINITE);
             rc = robotConnected;
         rt_mutex_release(&mutex_robotConnected);
       
+        //the connection must be checked only if the connection is already establish
         if(rc == 1){
             
-            //check connexion between the robot and the monitor
+            //check connexion between the robot and the supervisor
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
                 connexion = robot.Write(robot.Ping());
             rt_mutex_release(&mutex_robot);
 
+            //the robot response is not OK
             if (connexion->GetID() != MESSAGE_ANSWER_ACK) {
-                cout<<"error N "<< to_string(count)<<endl << flush;
+                cout << "error N "<< to_string(count) << endl << flush;
                 count++ ;
+
+                //the connection is consider as lost if there was 3 tries
                 if (count > 3) {
                     //send the message to the monitor
                     msg = new Message(MESSAGE_MONITOR_LOST);
@@ -615,26 +620,21 @@ void Tasks::CheckConnexion(void *arg) {
                     //start the robot
                     rt_sem_v(&sem_startRobot);
                     
-                    
                     //Reopen the connexion 
                     rt_sem_v(&sem_openComRobot);
-
-
                 }
             } else {
                 count =0;
             }
             
         }
-        
-        cout << endl << flush;
     }
 }
 
 /**
  * @brief Thread opening the camera.
  */
-void Tasks::StartCamera(void *arg) {
+void Tasks::StartCameraTask(void *arg) {
     int status;
     int err;
 
@@ -648,9 +648,11 @@ void Tasks::StartCamera(void *arg) {
     while (1) {
         rt_sem_p(&sem_startCamera, TM_INFINITE);
         cout << "Open camera (";
+
         rt_mutex_acquire(&mutex_camera, TM_INFINITE);
         status = camera.Open();
         rt_mutex_release(&mutex_camera);
+
         cout << status;
         cout << ")" << endl << flush;
 
@@ -672,7 +674,7 @@ void Tasks::StartCamera(void *arg) {
 /**
  * @brief Thread opening the camera.
  */
-void Tasks::StopCamera(void *arg) {
+void Tasks::StopCameraTask(void *arg) {
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -683,8 +685,11 @@ void Tasks::StopCamera(void *arg) {
     /**************************************************************************************/
     while (1) {
         rt_sem_p(&sem_stopCamera, TM_INFINITE);
+
+        //images can not be treat if the camera is closed
         rt_sem_p(&sem_imageProcessing, TM_INFINITE);
-        cout << "Close camera \n";
+
+        cout << "Close camera" << endl << flush;
         rt_mutex_acquire(&mutex_camera, TM_INFINITE);
             camera.Close();
         rt_mutex_release(&mutex_camera);
@@ -696,11 +701,11 @@ void Tasks::StopCamera(void *arg) {
 * @brief get the pictures of the camera and divide it according to the mode
 */
 void Tasks::imageProcessingTask(void *arg){
+    int mode;
     Img * img;
     Message* msgPos;
-    int mode;
-    list<Position> position;
     Arena a;
+    list<Position> position;
     
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
@@ -717,7 +722,7 @@ void Tasks::imageProcessingTask(void *arg){
 
         //take the token attributed to image processing
         rt_sem_p(&sem_imageProcessing, TM_INFINITE);
-        cout << "Periodic camera image sample\n";
+        cout << "Periodic camera image sample in mode (";
         
         //grap a picture
         img = GetImage();
@@ -726,16 +731,18 @@ void Tasks::imageProcessingTask(void *arg){
         rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
             mode = imageMode;
         rt_mutex_release(&mutex_imageMode);
-        
-        cout << "mode : " << mode << endl;
 
-        if(mode == CLASSIC_MODE){//send the picture to the monitor
+        cout << mode << ")" << endl << flush;
+
+        if(mode == CLASSIC_MODE){
                 //there is not specificity to do
         } else if (mode == ARENA_MODE){
+            //get the arena
             rt_mutex_acquire(&mutex_arena, TM_INFINITE);
                 a = arena;
             rt_mutex_release(&mutex_arena);
-                
+            
+            //Draw the arena
             img->DrawArena(a);
         } else if (mode == POSITION_MODE) {
             //get the arena
@@ -755,8 +762,9 @@ void Tasks::imageProcessingTask(void *arg){
                 cout << "Get Position" << endl;
                
                 Position p = position.front();
-               msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
+                msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             } else {
+                //if the robot was not find the position (-1,-1) is given
                 cv::Point out;
                 out.x = -1.0;
                 out.y = -1.0;
@@ -767,12 +775,14 @@ void Tasks::imageProcessingTask(void *arg){
             WriteInQueue(&q_messageToMon, msgPos);
             
         } else 
-            cout << "This mode does not exist" << endl;
+            cout << "This mode does not exist" << endl << flush;
         
-        
+        //send the picture to the monitor
         MessageImg *msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
         WriteInQueue(&q_messageToMon, msgImg);
                 
+        //release the token that indicate that a picture is processing to allow an other task to 
+        //process a picture (ex : ArenaValidation)       
         rt_sem_v(&sem_imageProcessing);
     }
 }
@@ -780,11 +790,11 @@ void Tasks::imageProcessingTask(void *arg){
 /**
  * @brief Arena Validation.
  */
-void Tasks::ArenaValidation(void *arg) {
+void Tasks::ArenaValidationTask(void *arg) {
     Img * img;
     Message* msgSend;
     Arena A;
-    bool AV;
+    bool AV; //arena validated
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -796,6 +806,8 @@ void Tasks::ArenaValidation(void *arg) {
     while (1) {
         rt_sem_p(&sem_arenaProcessing, TM_INFINITE);
         
+        //take the token attributed to image processing
+        //the objective is to forbiden imageProcessingTask to initiate is code
         rt_sem_p(&sem_imageProcessing, TM_INFINITE);
 
         img = GetImage();
@@ -803,10 +815,10 @@ void Tasks::ArenaValidation(void *arg) {
         A = img->SearchArena();
         
         if(A.IsEmpty()){
-            cout << "IsEmpty" << endl;
             msgSend = new Message(MESSAGE_ANSWER_NACK);
             WriteInQueue(&q_messageToMon, msgSend);
             
+            //this semaphore allows to stop the picture flow until the user give an answer 
             rt_sem_p(&sem_arenaValidation, TM_INFINITE);
             
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
@@ -825,17 +837,16 @@ void Tasks::ArenaValidation(void *arg) {
             rt_mutex_release(&mutex_arenaV);
             
             if (AV){
-                cout << "Arena confirm" << endl;
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
                 imageMode = ARENA_MODE;
             rt_mutex_release(&mutex_imageMode);
             
+            //save the arena in the global variable
             rt_mutex_acquire(&mutex_arena, TM_INFINITE);
                 arena = A;
             rt_mutex_release(&mutex_arena);
             
             } else {
-                cout << "Arena infirm" << endl;
             rt_mutex_acquire(&mutex_imageMode, TM_INFINITE);
                 imageMode = CLASSIC_MODE;
             rt_mutex_release(&mutex_imageMode);

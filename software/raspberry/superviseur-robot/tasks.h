@@ -168,17 +168,17 @@ private:
    /**
      * @brief Check the connexion between the supervisor and the robot with a ping.
      */
-    void CheckConnexion(void *arg);
+    void CheckConnexionTask(void *arg);
 
        /**
      * @brief Start the camera
      */
-    void StartCamera(void *arg);
+    void StartCameraTask(void *arg);
     
     /**
      * @brief Stop the camera
      */
-    void StopCamera(void *arg);
+    void StopCameraTask(void *arg);
 
     /**
      * @brief get the pictures of the camera and divide it according to the mode
@@ -188,7 +188,7 @@ private:
     /**
      *  @brief Arena Validation.
      */
-    void ArenaValidation(void *arg) ;
+    void ArenaValidationTask(void *arg) ;
     
     /**********************************************************************/
     /* Queue services                                                     */
