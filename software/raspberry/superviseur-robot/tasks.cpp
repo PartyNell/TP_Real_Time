@@ -20,16 +20,16 @@
 
 // Déclaration des priorités des taches
 #define PRIORITY_TSERVER 30
-#define PRIORITY_TOPENCOMROBOT 25
-#define PRIORITY_TMOVE 20
-#define PRIORITY_TSENDTOMON 22
-#define PRIORITY_TRECEIVEFROMMON 25
-#define PRIORITY_TSTARTROBOT 20
-#define PRIORITY_TCAMERA 24
+#define PRIORITY_TOPENCOMROBOT 12
+#define PRIORITY_TMOVE 7
+#define PRIORITY_TSENDTOMON 10
+#define PRIORITY_TRECEIVEFROMMON 5
+#define PRIORITY_TSTARTROBOT 13
+#define PRIORITY_TCAMERA 25
 #define PRIORITY_TBATTERY 20
-#define PRIORITY_TCONNEXION 24
-#define PRIORITY_TIMAGEPROCESSING 22
-#define PRIORITY_TARENA 21
+#define PRIORITY_TCONNEXION 9
+#define PRIORITY_TIMAGEPROCESSING 15
+#define PRIORITY_TARENA 15
 
 /*
  * Some remarks:
@@ -407,7 +407,7 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_sem_v(&sem_arenaValidation);
 
         } 
-        delete(msgRcv); // mus be deleted manually, no consumer
+        delete(msgRcv); // must be deleted manually, no consumer
     }
 }
 
@@ -541,13 +541,19 @@ void Tasks::GetBatteryTask(void *arg) {
         rt_task_wait_period(NULL);
         cout << "Periodic battery update" << endl << flush;
 
-        //ask battery level to the robot
-        rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-        battery = robot.Write(robot.GetBattery());
-        rt_mutex_release(&mutex_robot);
+        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+            rs = robotStarted;
+        rt_mutex_release(&mutex_robotStarted);
         
-        //send the message to the monitor
-        WriteInQueue(&q_messageToMon, battery);
+        if(rs == 1){
+            //ask battery level to the robot
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            battery = robot.Write(robot.GetBattery());
+            rt_mutex_release(&mutex_robot);
+
+            //send the message to the monitor
+            WriteInQueue(&q_messageToMon, battery);
+        }
             
     }
 }
@@ -570,7 +576,7 @@ void Tasks::CheckConnexionTask(void *arg) {
     /**************************************************************************************/
     /* The task starts here                                                               */
     /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
+    rt_task_set_periodic(NULL, TM_NOW, 500000000); 
 
     while (1) {
         rt_task_wait_period(NULL);
@@ -606,15 +612,16 @@ void Tasks::CheckConnexionTask(void *arg) {
                         robotConnected = 0;
                     rt_mutex_release(&mutex_robotConnected);
                     
-                    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-                        robot.Write(robot.Reset());
-                    rt_mutex_release(&mutex_robot);
+//                    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+//                        robot.Write(robot.Reset());
+//                    rt_mutex_release(&mutex_robot);
 
+                    //Reopen the connexion 
+                    rt_sem_v(&sem_openComRobot);
+                    
                     //start the robot
                     rt_sem_v(&sem_startRobot);
                     
-                    //Reopen the connexion 
-                    rt_sem_v(&sem_openComRobot);
                 }
             } else {
                 count =0;
@@ -757,7 +764,7 @@ void Tasks::imageProcessingTask(void *arg){
                 Position p = position.front();
                 msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             } else {
-                //if the robot was not find the position (-1,-1) is given
+                //if the robot was not found, the position (-1,-1) is given
                 cv::Point out;
                 out.x = -1.0;
                 out.y = -1.0;
@@ -881,7 +888,7 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
         throw std::runtime_error{"Error in read in queue"};
     }/** else {
         cout << "@msg :" << msg << endl << flush;
-    } /**/
+    } **/
 
     return msg;
 }
