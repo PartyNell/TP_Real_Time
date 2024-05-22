@@ -20,16 +20,16 @@
 
 // Déclaration des priorités des taches
 #define PRIORITY_TSERVER 30
-#define PRIORITY_TOPENCOMROBOT 12
-#define PRIORITY_TMOVE 7
-#define PRIORITY_TSENDTOMON 10
-#define PRIORITY_TRECEIVEFROMMON 5
-#define PRIORITY_TSTARTROBOT 13
-#define PRIORITY_TCAMERA 25
+#define PRIORITY_TOPENCOMROBOT 25
+#define PRIORITY_TMOVE 20
+#define PRIORITY_TSENDTOMON 22
+#define PRIORITY_TRECEIVEFROMMON 25
+#define PRIORITY_TSTARTROBOT 20
+#define PRIORITY_TCAMERA 24
 #define PRIORITY_TBATTERY 20
-#define PRIORITY_TCONNEXION 9
-#define PRIORITY_TIMAGEPROCESSING 15
-#define PRIORITY_TARENA 15
+#define PRIORITY_TCONNEXION 24
+#define PRIORITY_TIMAGEPROCESSING 22
+#define PRIORITY_TARENA 21
 
 /*
  * Some remarks:
@@ -476,10 +476,11 @@ void Tasks::StartRobotTask(void *arg) {
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
             robotStarted = 1;
             rt_mutex_release(&mutex_robotStarted);
-        } else {
-            // while not started, force start
-            rt_sem_v(&sem_startRobot);
-        }
+        } 
+//        else {
+//            // while not started, force start
+//            rt_sem_v(&sem_startRobot);
+//        }
     }
 }
 
