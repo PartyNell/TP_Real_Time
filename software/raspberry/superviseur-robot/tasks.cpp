@@ -541,21 +541,14 @@ void Tasks::GetBatteryTask(void *arg) {
         rt_task_wait_period(NULL);
         cout << "Periodic battery update" << endl << flush;
 
-        //obtains the battery level only if the robot is started
-        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        rs = robotStarted;
-        rt_mutex_release(&mutex_robotStarted);
-        if (rs == 1) {
-            //ask battery level to the robot
-            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            battery = robot.Write(robot.GetBattery());
-            rt_mutex_release(&mutex_robot);
+        //ask battery level to the robot
+        rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+        battery = robot.Write(robot.GetBattery());
+        rt_mutex_release(&mutex_robot);
+        
+        //send the message to the monitor
+        WriteInQueue(&q_messageToMon, battery);
             
-            
-            //send the message to the monitor
-            WriteInQueue(&q_messageToMon, battery);
-            
-        }
     }
 }
 
