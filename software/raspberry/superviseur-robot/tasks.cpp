@@ -662,9 +662,6 @@ void Tasks::StartCameraTask(void *arg) {
             msgSend = new Message(MESSAGE_ANSWER_NACK);
         } else {
             msgSend = new Message(MESSAGE_ANSWER_ACK);
-            rt_mutex_acquire(&mutex_cameraStarted, TM_INFINITE);
-                cameraStarted = 1;
-            rt_mutex_release(&mutex_cameraStarted);
         }
         WriteInQueue(&q_messageToMon, msgSend); // msgSend will be deleted by sendToMon
         
