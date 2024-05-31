@@ -74,7 +74,6 @@ private:
     bool arenaV ;
     int move = MESSAGE_ROBOT_STOP;
     int robotConnected = 0;
-    int cameraStarted =0;
     int imageMode = 0;
     Arena arena;
     
@@ -103,7 +102,6 @@ private:
     RT_MUTEX mutex_move;
     RT_MUTEX mutex_robotConnected;
     RT_MUTEX mutex_camera;
-    RT_MUTEX mutex_cameraStarted;
     RT_MUTEX mutex_imageMode;
     RT_MUTEX mutex_arena;
     RT_MUTEX mutex_arenaV;
