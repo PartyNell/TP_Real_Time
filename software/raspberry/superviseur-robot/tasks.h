@@ -179,12 +179,12 @@ private:
     void StopCameraTask(void *arg);
 
     /**
-     * @brief get the pictures of the camera and divide it according to the mode
+     * @brief Get pictures from the camera and treat them according to the mode
      */
     void imageProcessingTask(void *arg);
     
     /**
-     *  @brief Arena Validation.
+     *  @brief Find and draw Arena then ask for validation
      */
     void ArenaValidationTask(void *arg) ;
     
@@ -206,7 +206,7 @@ private:
     Message *ReadInQueue(RT_QUEUE *queue);
     
      /**
-     * grap the next image of the camera
+     * Grab the next image of the camera
      * @param void
      * @return Image capture
      */

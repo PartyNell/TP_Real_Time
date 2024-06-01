@@ -85,10 +85,6 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-     if (err = rt_mutex_create(&mutex_cameraStarted, NULL)) {
-        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
-        exit(EXIT_FAILURE);
-    }
     if (err = rt_mutex_create(&mutex_imageMode, NULL)) {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
@@ -407,7 +403,7 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_sem_v(&sem_arenaValidation);
 
         } 
-        delete(msgRcv); // must be deleted manually, no consumer
+        delete(msgRcv); // mus be deleted manually, no consumer
     }
 }
 
@@ -476,11 +472,10 @@ void Tasks::StartRobotTask(void *arg) {
             rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
             robotStarted = 1;
             rt_mutex_release(&mutex_robotStarted);
-        } 
-//        else {
-//            // while not started, force start
-//            rt_sem_v(&sem_startRobot);
-//        }
+        } else {
+            // while not started, force start
+            rt_sem_v(&sem_startRobot);
+        }
     }
 }
 
@@ -496,7 +491,7 @@ void Tasks::MoveTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task starts here                                                               */
+    /* The task move starts here                                                               */
     /**************************************************************************************/
     rt_task_set_periodic(NULL, TM_NOW, 100000000);
 
@@ -534,7 +529,7 @@ void Tasks::GetBatteryTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task starts here                                                               */
+    /* The task getBattery starts here                                                               */
     /**************************************************************************************/
     rt_task_set_periodic(NULL, TM_NOW, 500000000);
 
@@ -542,20 +537,21 @@ void Tasks::GetBatteryTask(void *arg) {
         rt_task_wait_period(NULL);
         cout << "Periodic battery update" << endl << flush;
 
+        //obtains the battery level only if the robot is started
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-            rs = robotStarted;
+        rs = robotStarted;
         rt_mutex_release(&mutex_robotStarted);
-        
-        if(rs == 1){
+        if (rs == 1) {
             //ask battery level to the robot
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             battery = robot.Write(robot.GetBattery());
             rt_mutex_release(&mutex_robot);
-
+            
+            
             //send the message to the monitor
             WriteInQueue(&q_messageToMon, battery);
-        }
             
+        }
     }
 }
 
@@ -575,9 +571,9 @@ void Tasks::CheckConnexionTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task starts here                                                               */
+    /* The task checkConnexion starts here                                                               */
     /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 500000000); 
+    rt_task_set_periodic(NULL, TM_NOW, 100000000); 
 
     while (1) {
         rt_task_wait_period(NULL);
@@ -613,16 +609,16 @@ void Tasks::CheckConnexionTask(void *arg) {
                         robotConnected = 0;
                     rt_mutex_release(&mutex_robotConnected);
                     
-//                    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-//                        robot.Write(robot.Reset());
-//                    rt_mutex_release(&mutex_robot);
+                    //Since the reception of MESSAGE_MONITOR_LOST does not seem to ask for a robot restart, we do it here, forcing the supervisor to reestablish the connection.
+                    rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+                        robot.Write(robot.Reset());
+                    rt_mutex_release(&mutex_robot);
 
-                    //Reopen the connexion 
-                    rt_sem_v(&sem_openComRobot);
-                    
                     //start the robot
                     rt_sem_v(&sem_startRobot);
                     
+                    //Reopen the connexion 
+                    rt_sem_v(&sem_openComRobot);
                 }
             } else {
                 count =0;
@@ -644,7 +640,7 @@ void Tasks::StartCameraTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task openComRobot starts here                                                  */
+    /* The task startCamera starts here                                                  */
     /**************************************************************************************/
     while (1) {
         rt_sem_p(&sem_startCamera, TM_INFINITE);
@@ -670,7 +666,7 @@ void Tasks::StartCameraTask(void *arg) {
 }
 
 /**
- * @brief Thread opening the camera.
+ * @brief Thread closing the camera.
  */
 void Tasks::StopCameraTask(void *arg) {
 
@@ -679,12 +675,12 @@ void Tasks::StopCameraTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task openComRobot starts here                                                  */
+    /* The task stopCamera starts here                                                  */
     /**************************************************************************************/
     while (1) {
         rt_sem_p(&sem_stopCamera, TM_INFINITE);
 
-        //images can not be treat if the camera is closed
+        //Images can not be treat if the camera is closed
         rt_sem_p(&sem_imageProcessing, TM_INFINITE);
 
         cout << "Close camera" << endl << flush;
@@ -696,7 +692,7 @@ void Tasks::StopCameraTask(void *arg) {
 }
 
 /**
-* @brief get the pictures of the camera and divide it according to the mode
+* @brief Get pictures from the camera and treat them according to the mode
 */
 void Tasks::imageProcessingTask(void *arg){
     int mode;
@@ -713,7 +709,7 @@ void Tasks::imageProcessingTask(void *arg){
     rt_task_set_periodic(NULL, TM_NOW, 100000000); 
 
     /**************************************************************************************/
-    /* The task openComRobot starts here                                                  */
+    /* The task imageProcessing starts here                                                  */
     /**************************************************************************************/
     while (1) {
         rt_task_wait_period(NULL);
@@ -762,7 +758,7 @@ void Tasks::imageProcessingTask(void *arg){
                 Position p = position.front();
                 msgPos = new MessagePosition(MESSAGE_CAM_POSITION, p);
             } else {
-                //if the robot was not found, the position (-1,-1) is given
+                //if the robot was not find the position (-1,-1) is given
                 cv::Point out;
                 out.x = -1.0;
                 out.y = -1.0;
@@ -786,7 +782,7 @@ void Tasks::imageProcessingTask(void *arg){
 }
 
 /**
- * @brief Arena Validation.
+ * @brief Find and draw Arena then ask for validation
  */
 void Tasks::ArenaValidationTask(void *arg) {
     Img * img;
@@ -799,7 +795,7 @@ void Tasks::ArenaValidationTask(void *arg) {
     rt_sem_p(&sem_barrier, TM_INFINITE);
     
     /**************************************************************************************/
-    /* The task openComRobot starts here                                                  */
+    /* The task ArenaValidation starts here                                                  */
     /**************************************************************************************/
     while (1) {
         rt_sem_p(&sem_arenaProcessing, TM_INFINITE);
@@ -886,25 +882,26 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
         throw std::runtime_error{"Error in read in queue"};
     }/** else {
         cout << "@msg :" << msg << endl << flush;
-    } **/
+    } /**/
 
     return msg;
 }
 
 
 /**
- * grap the next image of the camera
+ * Grab the next image of the camera
  * @param void
  * @return Image capture
  */
 Img* Tasks::GetImage(){
     Img *img;
     
-    //grap a picture
+    //grab a picture
     rt_mutex_acquire(&mutex_camera, TM_INFINITE);
         img = new Img(camera.Grab());
     rt_mutex_release(&mutex_camera);
     
     return img;
 }
+
 
